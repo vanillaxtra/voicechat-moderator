@@ -1,0 +1,41 @@
+# ── Custom ban screens ───────────────────────────────────────────────────────
+# Each screen is referenced by its key in word_groups.[name].ban.ban_screen_key
+#
+# Supports MiniMessage formatting: https://docs.advntr.dev/minimessage/format.html
+#
+# Placeholders:
+#   %player%   — player name
+#   %reason%   — ban reason
+#   %expiry%   — expiry date/time or "Permanent"
+#   %banned_by% — who issued the ban ("VoicechatModerator" for auto-bans)
+#
+ban_screens:
+  default:
+    title: "<red><bold>You have been banned"
+    message: |
+      <newline>
+      <gray>Reason: <white>%reason%
+      <newline>
+      <gray>Expires: <white>%expiry%
+      <newline>
+      <gray>If you believe this is a mistake, contact staff.
+
+  slur_ban:
+    title: "<dark_red><bold>Permanently Banned"
+    message: |
+      <newline>
+      <red>You have been banned for using a slur in voice chat.
+      <newline>
+      <gray>Reason: <white>%reason%
+      <gray>Expires: <white>%expiry%
+      <newline>
+      <gray>Appeal at: <aqua>discord.gg/example
+
+  temp_ban:
+    title: "<gold><bold>Temporarily Banned"
+    message: |
+      <newline>
+      <yellow>You have been temporarily banned.
+      <newline>
+      <gray>Reason: <white>%reason%
+      <gray>Expires: <white>%expiry%

@@ -1,0 +1,41 @@
+# ── Mute notification configuration ─────────────────────────────────────────
+# Shown when a muted player activates their microphone.
+# Their audio packet is cancelled — others cannot hear them.
+#
+# Placeholders:
+#   %player%   — player name
+#   %expiry%   — "Permanent" or remaining duration (e.g. "2h 30m")
+#   %reason%   — mute reason
+#   %muted_by% — who issued the mute
+#
+# Supports MiniMessage: https://docs.advntr.dev/minimessage/format.html
+#
+mute_notification:
+  # Minimum seconds between repeated notifications to the same player
+  cooldown_seconds: 5
+
+  actionbar:
+    enabled: true
+    message: "<red>\u26A0 You are voice muted. <gray>Expires: <white>%expiry%"
+
+  chat:
+    enabled: false
+    message: "<red>You are voice muted. Expires: <white>%expiry%"
+
+  title:
+    enabled: false
+    title: "<red><bold>Voice Muted"
+    subtitle: "<gray>Expires: <white>%expiry%"
+    fade_in: 10
+    stay: 60
+    fade_out: 20
+
+  bossbar:
+    enabled: false
+    message: "<red>\u26A0 Voice muted \u2014 expires <white>%expiry%"
+    # RED | BLUE | GREEN | YELLOW | PURPLE | WHITE | PINK
+    color: RED
+    # SOLID | SEGMENTED_6 | SEGMENTED_10 | SEGMENTED_12 | SEGMENTED_20
+    style: SOLID
+    # How long to show the bossbar (server ticks, 20 = 1 second)
+    duration_ticks: 100

@@ -1,0 +1,168 @@
+whisper:
+  # Address and port of the Whisper WebSocket service
+  host: "127.0.0.1"
+  port: 8765
+  # Seconds between reconnect attempts when the connection drops
+  reconnect_delay_seconds: 5
+  # Human-readable label sent with each request for VPS-side logging.
+  # Useful when multiple servers share one Whisper instance.
+  # Leave blank to omit.
+  instance_id: "my-server"
+  # Maximum number of audio chunks in-flight at once (sent but not yet answered).
+  # Chunks beyond this limit are silently dropped to avoid overloading the VPS queue.
+  max_inflight: 8
+
+# ── Audio buffering ─────────────────────────────────────────────────────────
+audio:
+  sample_rate: 48000
+  chunk_seconds: 3
+  max_buffer_seconds: 8
+  # BCP-47 hint (e.g. "en"). Blank = auto-detect.
+  language: ""
+
+# ── Mute ladder (requires LuckPerms when enabled) ────────────────────────────
+# When enabled, repeat auto-mutes from word-group matches escalate through tiers.
+# The tier for each player is stored in the database and increments on each strike.
+# Manual mutes (via DB/command) do NOT advance the ladder tier.
+# Requires LuckPerms to be installed; the plugin logs a warning and disables the
+# ladder automatically if LuckPerms is absent.
+mute_ladder:
+  enabled: false
+  tiers:
+    1: "5m"
+    2: "15m"
+    3: "30m"
+    4: "1h"
+    5: "6h"
+  # Duration cap — no single mute can exceed this even at the highest tier.
+  max_tier_duration: "24h"
+  # Reset a player's tier to 1 if they have not received a strike for this many days.
+  reset_after_days: 30
+
+# ── Ban hooks ─────────────────────────────────────────────────────────────────
+ban_hooks:
+  # auto = detect AdvancedBanX/AdvancedBan or LiteBans or vanilla /ban
+  # Or force: advancedbanx | litebans | vanilla
+  provider: auto
+  # Overrides auto-detection. Leave blank to use defaults.
+  # Placeholders: %player%, %reason%, %duration%
+  # This is just in case you have a different ban system.
+  custom_ban_command: ""
+  custom_tempban_command: ""
+
+# ── Moderation ──────────────────────────────────────────────────────────────
+moderation:
+  enabled: true
+  # Also call VoicechatConnection.setDisabled(true) when muting.
+  # This sets their voice chat to be disabled when they are muted by the plugin.
+  use_api_mute_fallback: false
+
+# ── Mute notification ────────────────────────────────────────────────────────
+mute:
+  # Which channel is used to tell the player they are voice-muted.
+  # Options: actionbar, chat, title, bossbar
+  # This overrides the per-channel 'enabled' flags in mute.yml.
+  # Leave blank to use mute.yml flags directly.
+  mute_notification: "actionbar"
+
+# ── Word groups ─────────────────────────────────────────────────────────────
+# Each group defines a named set of words to listen for.
+# Available placeholders in run_commands_as_console:
+#   %player%   — in-game name of the speaker
+#   %uuid%     — UUID of the speaker
+#   %word%     — the specific word/phrase that triggered the match
+#   %message%  — the full transcript chunk from Whisper
+#   %time%     — ISO-8601 timestamp (e.g. 2026-05-15T17:00:00Z)
+#   %group%    — the word-group id (e.g. "slurs")
+#
+word_groups:
+  slurs:
+    enabled: true
+    # WORD_BOUNDARY — only match whole words (recommended; avoids false positives)
+    # CONTAINS      — match anywhere in transcript (more aggressive)
+    match_mode: WORD_BOUNDARY
+    # How many seconds to wait before this group can fire again for the same player
+    cooldown_seconds: 60
+    # Add your list here — intentionally empty so no content is distributed.
+    words: []
+    # URLs to plain-text word lists (one word per line, # for comments).
+    # Downloaded once on first start; delete the cache file to force re-download.
+    # Cache location: plugins/VoicechatModerator/wordlists/slurs.txt
+    word_list_urls: []
+    # Console commands to run when a match is detected.
+    run_commands_as_console:
+      - ""
+    voice_mute:
+      enabled: false
+      duration_seconds: 300
+    ban:
+      enabled: false
+      reason: "Voice chat violation: %word%"
+      # Key referencing a screen in ban.yml — leave blank for "default"
+      ban_screen_key: "default"
+      # Duration e.g. "7d", "2h30m", "" = permanent
+      duration: ""
+    webhook:
+      # Set to a key defined under discord.webhooks, or leave blank to skip.
+      key: ""
+
+  profanity:
+    enabled: false
+    match_mode: WORD_BOUNDARY
+    cooldown_seconds: 30
+    words: []
+    word_list_urls: []
+    run_commands_as_console:
+      - ""
+    voice_mute:
+      enabled: false
+      duration_seconds: 120
+    ban:
+      enabled: false
+      reason: "Profanity in voice chat"
+      ban_screen_key: "default"
+      duration: "1d"
+    webhook:
+      key: ""
+
+# ── Discord webhooks ─────────────────────────────────────────────────────────
+discord:
+  enabled: false
+
+  # Named webhook definitions — reference by key in word_groups.[group].webhook.key
+  webhooks:
+    staff-alerts:
+      url: "https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN"
+      # Username shown in Discord (optional)
+      username: "VoiceModerator"
+
+  clip:
+    # Duration of the audio clip attached to Discord alerts (seconds)
+    clip_seconds: 10
+
+# ── Recordings ───────────────────────────────────────────────────────────────
+recordings:
+  # Save WAV clips of flagged audio to plugins/VoicechatModerator/recordings/
+  save_flagged: true
+  # Days to keep recordings before manual cleanup (0 = keep forever, no auto-delete)
+  retention_days: 7
+
+# ── Voice reports ─────────────────────────────────────────────────────────────
+voice_reports:
+  enabled: true
+  # How many minutes of transcript to include in each report snapshot
+  transcript_minutes: 10
+  # Notify online staff (players with voicechatmoderator.review) when a report is filed
+  notify_staff: true
+
+# ── Database ─────────────────────────────────────────────────────────────────
+# Do not change this unless you know what you are doing.
+database:
+  # sqlite (file-based, no setup needed) or mysql
+  type: sqlite
+  # MySQL only — ignored for sqlite
+  host: "localhost"
+  port: 3306
+  database: "vcm"
+  username: "root"
+  password: ""

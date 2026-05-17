@@ -1,21 +1,54 @@
-.gradle
-**/build/
-!src/**/build/
+# ── Gradle ────────────────────────────────────────────────────────────────────
+.gradle/
+build/
+paper-plugin/build/
+paper-plugin/bin/
+*.jar
 
-# Ignore Gradle GUI config
-gradle-app.setting
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.idea/
+*.iml
+*.iws
+.vscode/
+*.code-workspace
 
-# Avoid ignoring Gradle wrapper jar file (.jar files are usually ignored)
-!gradle-wrapper.jar
+# ── Minecraft runtime ─────────────────────────────────────────────────────────
+run/
+plugins/
+server.properties
+eula.txt
+logs/
+world/
+world_nether/
+world_the_end/
+crash-reports/
+usercache.json
+whitelist.json
+ops.json
+banned-players.json
+banned-ips.json
 
-# Avoid ignore Gradle wrappper properties
-!gradle-wrapper.properties
+# ── VCM runtime data (never commit DB or recordings) ─────────────────────────
+*.db
+*.db-wal
+*.db-shm
+recordings/
 
-# Cache of project
-.gradletasknamecache
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+dist/
+*.whl
 
-# Eclipse Gradle plugin generated files
-# Eclipse Core
-.project
-# JDT-specific (Eclipse Java Development Tools)
-.classpath
+# ── Whisper model cache (can be several GB) ───────────────────────────────────
+models/
+.cache/
+whisper-service/recordings/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
