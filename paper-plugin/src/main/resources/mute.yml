@@ -11,15 +11,17 @@
 # Supports MiniMessage: https://docs.advntr.dev/minimessage/format.html
 #
 mute_notification:
-  # Minimum seconds between repeated notifications to the same player
-  cooldown_seconds: 5
+  # Minimum seconds between repeated notifications to the same player.
+  # Mic packets fire many times per second — this prevents chat/actionbar spam.
+  # Lower this to make the reminder feel more immediate (minimum: 1).
+  cooldown_seconds: 3
 
   actionbar:
     enabled: true
     message: "<red>\u26A0 You are voice muted. <gray>Expires: <white>%expiry%"
 
   chat:
-    enabled: false
+    enabled: true
     message: "<red>You are voice muted. Expires: <white>%expiry%"
 
   title:

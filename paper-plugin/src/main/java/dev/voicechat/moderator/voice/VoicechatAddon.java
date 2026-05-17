@@ -17,6 +17,9 @@ import dev.voicechat.moderator.matching.WordMatcher;
 import dev.voicechat.moderator.moderation.ModerationActionExecutor;
 import dev.voicechat.moderator.util.FoliaUtil;
 import dev.voicechat.moderator.whisper.WhisperWsClient;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.entity.Player;
 
 import java.time.Instant;
@@ -183,6 +186,21 @@ public class VoicechatAddon implements VoicechatPlugin {
 
             FoliaUtil.runOnMain(plugin, () -> {
                 plugin.getLogger().info("[VC] " + playerName + ": " + text);
+
+                // Transcript chat broadcast (opt-in spy mode)
+                if (plugin.getConfig().getBoolean("transcript_broadcast.enabled", false)) {
+                    Component spyMsg = Component.text("[VCM] ", NamedTextColor.GRAY)
+                            .append(Component.text(playerName, NamedTextColor.YELLOW))
+                            .append(Component.text(": ", NamedTextColor.GRAY))
+                            .append(Component.text(text, NamedTextColor.WHITE))
+                            .decoration(TextDecoration.ITALIC, false);
+                    for (Player p : plugin.getServer().getOnlinePlayers()) {
+                        if (p.isOp() || p.hasPermission("voicechatmoderator.spy")) {
+                            p.sendMessage(spyMsg);
+                        }
+                    }
+                }
+
                 if (!hits.isEmpty()) {
                     Player player = plugin.getServer().getPlayer(uuid);
                     ModerationActionExecutor.execute(

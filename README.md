@@ -533,6 +533,8 @@ Then run `/vcm reload`.
 
 ## bStats
 
+[![bStats](https://bstats.org/signatures/bukkit/voicechat-moderator.svg)](https://bstats.org/plugin/bukkit/voicechat-moderator/31400)
+
 This plugin collects anonymous usage statistics via [bStats](https://bstats.org). You can opt out by setting `enabled: false` in `plugins/bStats/config.yml`.
 
 ---

@@ -168,6 +168,12 @@ public final class WhisperWsClient {
         int    port = plugin.getConfig().getInt("whisper.port", 8765);
         URI    uri  = URI.create("ws://" + host + ":" + port + "/ws");
 
+        if (host.equals("127.0.0.1") || host.equalsIgnoreCase("localhost")) {
+            logger.warning("[WS] whisper.host is set to " + host
+                    + " — this only works if the Whisper service is running on THIS machine. "
+                    + "Set whisper.host to your VPS public IP in plugins/VoicechatModerator/config.yml if needed.");
+        }
+
         logger.info("[WS] Connecting to " + uri + " ...");
 
         ws = HTTP.newWebSocketBuilder()

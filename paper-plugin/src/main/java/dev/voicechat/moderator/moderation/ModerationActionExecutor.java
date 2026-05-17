@@ -204,6 +204,11 @@ public final class ModerationActionExecutor {
         }
     }
 
+    /** Registers a manually-created attachment so it can be cleaned up later. */
+    public static void putMuteAttachment(UUID uuid, PermissionAttachment att) {
+        MUTE_ATTACHMENTS.put(uuid, att);
+    }
+
     /** Also clears any LuckPerms temp node when the ladder is active. */
     public static void removeMuteFull(VoicechatModeratorPlugin plugin, Player player) {
         removeMute(player);

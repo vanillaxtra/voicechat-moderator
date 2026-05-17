@@ -26,12 +26,14 @@ dependencies {
 
     implementation("org.xerial:sqlite-jdbc:3.45.3.0")
     implementation("com.zaxxer:HikariCP:5.1.0")
+    implementation("org.bstats:bstats-bukkit:3.2.1")
 }
 
 tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar") {
     archiveFileName.set("voicechat-moderator.jar")
 
     relocate("com.zaxxer.hikari", "dev.voicechat.libs.hikari")
+    relocate("org.bstats",        "dev.voicechat.libs.bstats")
 
     exclude("org/sqlite/native/Mac/**")
     exclude("org/sqlite/native/FreeBSD/**")

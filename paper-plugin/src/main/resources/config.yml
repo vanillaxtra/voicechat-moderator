@@ -80,7 +80,7 @@ word_groups:
     # How many seconds to wait before this group can fire again for the same player
     cooldown_seconds: 60
     # Add your list here — intentionally empty so no content is distributed.
-    words: words: [nigger, faggot, pakki, paci, paki, packy, Niggah, nigga, neck, mega, megan, faggy, fagot, fargot, nika, dick, pussy, packi]
+    words: [nigger, faggot, pakki, paci, paki, packy, Niggah, nigga, neck, mega, megan, faggy, fagot, fargot, nika, dick, pussy, packi]
     # URLs to plain-text word lists (one word per line, # for comments).
     # Downloaded once on first start; delete the cache file to force re-download.
     # Cache location: plugins/VoicechatModerator/wordlists/slurs.txt
@@ -136,6 +136,12 @@ discord:
   clip:
     # Duration of the audio clip attached to Discord alerts (seconds)
     clip_seconds: 10
+
+# ── Transcript broadcast (chat spy) ──────────────────────────────────────────
+transcript_broadcast:
+  # Send every transcript line to online operators and players with
+  # voicechatmoderator.spy. Disabled by default.
+  enabled: false
 
 # ── Recordings ───────────────────────────────────────────────────────────────
 recordings:

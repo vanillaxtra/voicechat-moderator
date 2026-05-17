@@ -17,9 +17,9 @@ softdepend:
 
 commands:
   voicechatmoderator:
-    description: Manage VoicechatModerator — reload, enable, disable, status, reviews.
+    description: Manage VoicechatModerator — reload, enable, disable, status, reviews, mute/unmute/ban/unban.
     aliases: [vcm]
-    usage: /vcm <reload|enable|disable|status|reviews|viewreport|markreviewed>
+    usage: /vcm <reload|enable|disable|status|reviews|viewreport|markreviewed|mute|unmute|ban|unban>
     permission: voicechatmoderator.reload
 
   reportvoice:
@@ -39,4 +39,13 @@ permissions:
     default: true
   voicechatmoderator.review:
     description: Allows viewing and reviewing filed voice chat reports.
+    default: op
+  voicechatmoderator.spy:
+    description: Receive in-game voice transcript broadcasts when transcript_broadcast.enabled is true.
+    default: op
+  voicechatmoderator.mute:
+    description: Allows manually muting/unmuting players from voice chat.
+    default: op
+  voicechatmoderator.ban:
+    description: Allows manually banning/unbanning players (default ban system only).
     default: op

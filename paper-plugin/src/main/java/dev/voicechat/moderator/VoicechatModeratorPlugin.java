@@ -7,19 +7,25 @@ import dev.voicechat.moderator.events.PlayerQuitListener;
 import dev.voicechat.moderator.hooks.BanHookManager;
 import dev.voicechat.moderator.hooks.BanScreenLoader;
 import dev.voicechat.moderator.matching.WordListDownloader;
+import dev.voicechat.moderator.moderation.ModerationActionExecutor;
 import dev.voicechat.moderator.mute.MuteLadderService;
 import dev.voicechat.moderator.notify.MuteNotifier;
 import dev.voicechat.moderator.placeholder.VcmPlaceholderExpansion;
 import dev.voicechat.moderator.reports.VoiceReportCommand;
 import dev.voicechat.moderator.voice.VoicechatAddon;
 import dev.voicechat.moderator.whisper.WhisperWsClient;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
+import org.bukkit.permissions.PermissionAttachment;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.sql.SQLException;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.logging.Level;
@@ -59,6 +65,9 @@ public class VoicechatModeratorPlugin extends JavaPlugin {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+
+        // bStats metrics
+        new org.bstats.bukkit.Metrics(this, 31400);
 
         // Word list downloader + helpers
         wordListDownloader = new WordListDownloader(getDataFolder(), getLogger());
@@ -183,10 +192,145 @@ public class VoicechatModeratorPlugin extends JavaPlugin {
                 try { if (reportCommand != null) reportCommand.handleMarkReviewed(sender, Integer.parseInt(args[1])); }
                 catch (NumberFormatException e) { sender.sendMessage("§cInvalid report ID."); }
             }
+            case "mute" -> handleManualMute(sender, args);
+            case "unmute" -> handleManualUnmute(sender, args);
+            case "ban" -> handleManualBan(sender, args);
+            case "unban" -> handleManualUnban(sender, args);
             default -> sender.sendMessage(
-                    "§eUsage: /vcm <reload|enable|disable|status|reviews|viewreport|markreviewed>");
+                    "§eUsage: /vcm <reload|enable|disable|status|reviews|viewreport|markreviewed|mute|unmute|ban|unban>");
         }
         return true;
+    }
+
+    // ── Manual moderation commands ────────────────────────────────────────────
+
+    private void handleManualMute(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("voicechatmoderator.mute")) {
+            sender.sendMessage("§cNo permission."); return;
+        }
+        if (args.length < 2) {
+            sender.sendMessage("§eUsage: /vcm mute <player> [duration] [reason...]");
+            sender.sendMessage("§7Duration examples: 5m 1h 2d — omit for permanent");
+            return;
+        }
+        OfflinePlayer target = getServer().getOfflinePlayer(args[1]);
+        UUID uuid = target.getUniqueId();
+        String name = target.getName() != null ? target.getName() : args[1];
+
+        // Parse optional duration (arg[2] if it looks like a duration)
+        int durationSeconds = 0;
+        int reasonStart = 2;
+        if (args.length > 2 && args[2].matches("\\d+[smhd]")) {
+            durationSeconds = (int) parseDurationSeconds(args[2]);
+            reasonStart = 3;
+        }
+        String reason = args.length > reasonStart
+                ? String.join(" ", Arrays.copyOfRange(args, reasonStart, args.length))
+                : "Manually muted by " + sender.getName();
+
+        long expiry = durationSeconds > 0
+                ? System.currentTimeMillis() + (long) durationSeconds * 1000 : -1L;
+
+        DatabaseManager db = getDatabaseManager();
+        if (db != null) db.addMute(uuid, name, reason, sender.getName(), expiry);
+
+        Player online = getServer().getPlayer(uuid);
+        if (online != null) {
+            PermissionAttachment att = online.addAttachment(this);
+            att.setPermission("voicechat.speak", false);
+            ModerationActionExecutor.putMuteAttachment(uuid, att);
+        }
+
+        String durationStr = durationSeconds > 0 ? (durationSeconds + "s") : "permanent";
+        sender.sendMessage("§aVoice-muted §f" + name + " §7(" + durationStr + "): §f" + reason);
+        getLogger().info("[Manual] " + sender.getName() + " voice-muted " + name + " for " + durationStr);
+    }
+
+    private void handleManualUnmute(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("voicechatmoderator.mute")) {
+            sender.sendMessage("§cNo permission."); return;
+        }
+        if (args.length < 2) { sender.sendMessage("§eUsage: /vcm unmute <player>"); return; }
+
+        OfflinePlayer target = getServer().getOfflinePlayer(args[1]);
+        UUID uuid = target.getUniqueId();
+        String name = target.getName() != null ? target.getName() : args[1];
+
+        DatabaseManager db = getDatabaseManager();
+        if (db != null) db.removeMute(uuid);
+
+        Player online = getServer().getPlayer(uuid);
+        if (online != null) ModerationActionExecutor.removeMuteFull(this, online);
+
+        sender.sendMessage("§aUnmuted §f" + name + " §7from voice chat.");
+    }
+
+    private void handleManualBan(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("voicechatmoderator.ban")) {
+            sender.sendMessage("§cNo permission."); return;
+        }
+        if (args.length < 2) {
+            sender.sendMessage("§eUsage: /vcm ban <player> [reason...]");
+            sender.sendMessage("§7Bans using the configured ban provider (see ban_hooks in config.yml).");
+            return;
+        }
+        OfflinePlayer target = getServer().getOfflinePlayer(args[1]);
+        UUID uuid = target.getUniqueId();
+        String name = target.getName() != null ? target.getName() : args[1];
+        String reason = args.length > 2
+                ? String.join(" ", Arrays.copyOfRange(args, 2, args.length))
+                : "Banned by " + sender.getName() + " via voice chat moderation";
+
+        DatabaseManager db = getDatabaseManager();
+        if (db != null) db.addBan(uuid, name, reason, sender.getName(), -1L);
+
+        // Delegate to configured ban hook for actual enforcement
+        Player onlineTarget = getServer().getPlayer(uuid);
+        if (banHookManager != null) {
+            banHookManager.ban(onlineTarget, name, reason, "");
+        }
+
+        sender.sendMessage("§aBanned §f" + name + " §7via ban provider: §f" + reason);
+        getLogger().info("[Manual] " + sender.getName() + " banned " + name + ": " + reason);
+    }
+
+    private void handleManualUnban(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("voicechatmoderator.ban")) {
+            sender.sendMessage("§cNo permission."); return;
+        }
+        if (args.length < 2) { sender.sendMessage("§eUsage: /vcm unban <player>"); return; }
+
+        OfflinePlayer target = getServer().getOfflinePlayer(args[1]);
+        UUID uuid = target.getUniqueId();
+        String name = target.getName() != null ? target.getName() : args[1];
+
+        DatabaseManager db = getDatabaseManager();
+        if (db != null) db.removeBan(uuid);
+
+        // Vanilla unban (name-based for broad compatibility)
+        @SuppressWarnings("deprecation")
+        var banList = getServer().getBanList(org.bukkit.BanList.Type.NAME);
+        banList.pardon(name);
+
+        sender.sendMessage("§aUnbanned §f" + name + " §7from the VCM ban list.");
+    }
+
+    // ── Duration helper ───────────────────────────────────────────────────────
+
+    /** Parses "5m", "1h", "2d", "30s" into total seconds. Returns 0 on failure. */
+    private static int parseDurationSeconds(String s) {
+        if (s == null || s.isBlank()) return 0;
+        s = s.trim().toLowerCase();
+        int mul = switch (s.charAt(s.length() - 1)) {
+            case 's' -> 1;
+            case 'm' -> 60;
+            case 'h' -> 3600;
+            case 'd' -> 86400;
+            default  -> 0;
+        };
+        if (mul == 0) return 0;
+        try { return Integer.parseInt(s.substring(0, s.length() - 1)) * mul; }
+        catch (NumberFormatException e) { return 0; }
     }
 
     // ── Reload helpers ────────────────────────────────────────────────────────
