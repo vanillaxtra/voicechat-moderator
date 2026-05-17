@@ -196,7 +196,7 @@ public final class VoiceReportGui implements Listener {
                 .decoration(TextDecoration.ITALIC, false);
 
         for (Player p : Bukkit.getOnlinePlayers()) {
-            if (p.hasPermission("voicechatmoderator.review")) {
+            if (p.isOp() || p.hasPermission("voicechatmoderator.review")) {
                 p.sendMessage(msg);
             }
         }

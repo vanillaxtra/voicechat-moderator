@@ -3,7 +3,8 @@ VoicechatModerator — faster-whisper WebSocket transcription service.
 
 Designed to run publicly on a VPS and serve multiple Minecraft servers
 simultaneously.  No authentication is required; abuse protection is
-provided by connection caps and per-connection rate limiting.
+provided by connection caps, per-connection rate limiting, and automatic
+Discord abuse alerts.
 
 Protocol
 --------
@@ -37,15 +38,17 @@ Environment variables
   WHISPER_DEVICE            cpu | cuda                    (default: cpu)
   WHISPER_WORKERS           transcription threads         (default: 2)
   WHISPER_MAX_QUEUE         max buffered jobs             (default: WORKERS * 4)
-                            Jobs beyond this are rejected immediately.
   WHISPER_MAX_CONNECTIONS   global concurrent WS cap      (default: 20)
-                            Excess connections are closed with an error.
   WHISPER_MAX_CONN_PER_IP   connections allowed per IP    (default: 3)
-                            Protects against one host taking all slots.
   WHISPER_RATE_LIMIT        requests per minute per conn  (default: 30)
-                            Excess requests get an error frame; conn stays open.
   WHISPER_STATUS_PORT       plain HTTP status page port   (default: 8766)
-                            Returns JSON; 0 = disable status server.
+  WHISPER_ABUSE_WEBHOOK     Discord webhook URL for abuse alerts (optional)
+                            Leave unset to disable alerts.
+  WHISPER_ABUSE_RATE_THRESH  rate-limit hits before alerting    (default: 10)
+                            How many rate-limit violations in a session
+                            before an alert fires for that IP.
+  WHISPER_STATS_FILE        path to per-IP JSON stats file
+                            (default: ip_stats.json)
 """
 
 from __future__ import annotations
@@ -57,9 +60,10 @@ import logging
 import os
 import tempfile
 import time
+import urllib.request
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import websockets
@@ -85,15 +89,30 @@ WORKERS          = max(1, int(os.environ.get("WHISPER_WORKERS",          "2")))
 MAX_QUEUE        = int(os.environ.get("WHISPER_MAX_QUEUE",        str(WORKERS * 4)))
 MAX_CONNECTIONS  = int(os.environ.get("WHISPER_MAX_CONNECTIONS",  "20"))
 MAX_CONN_PER_IP  = int(os.environ.get("WHISPER_MAX_CONN_PER_IP",  "3"))
-RATE_LIMIT       = int(os.environ.get("WHISPER_RATE_LIMIT",       "30"))  # per minute
+RATE_LIMIT       = int(os.environ.get("WHISPER_RATE_LIMIT",       "30"))   # req/min
 STATUS_PORT      = int(os.environ.get("WHISPER_STATUS_PORT",      "8766"))
+ABUSE_WEBHOOK    = os.environ.get("WHISPER_ABUSE_WEBHOOK",    "").strip()
+ABUSE_RATE_THRESH = int(os.environ.get("WHISPER_ABUSE_RATE_THRESH", "10"))
+STATS_FILE       = Path(os.environ.get("WHISPER_STATS_FILE", "ip_stats.json"))
 
 RECORDINGS_DIR = Path("recordings")
+
+# ── Per-IP stats (persisted to STATS_FILE) ────────────────────────────────────
+#
+# Structure: { "1.2.3.4": { "requests": int, "rate_limit_hits": int,
+#   "conn_rejections": int, "first_seen": iso-str, "last_seen": iso-str,
+#   "sessions": int, "instances": [str, ...] } }
+
+_ip_stats: dict[str, dict] = {}
+
+# ── Last-alert epoch per IP — avoids spamming the webhook for the same IP ─────
+_last_alert: dict[str, float] = {}
+ALERT_COOLDOWN_SEC = 600   # at most one alert per IP per 10 minutes
 
 # ── Connection tracking (all access is on the event-loop thread) ──────────────
 
 _active_connections: set[WebSocketServerProtocol] = set()
-_connections_by_ip: dict[str, int] = defaultdict(int)   # ip → active count
+_connections_by_ip: dict[str, int] = defaultdict(int)
 
 # ── Model load ────────────────────────────────────────────────────────────────
 
@@ -117,6 +136,111 @@ _thread_pool = ThreadPoolExecutor(
 _queue: asyncio.Queue  # initialised in main()
 
 
+# ── Per-IP stats helpers ──────────────────────────────────────────────────────
+
+def _ensure_ip(ip: str) -> dict:
+    """Return (creating if needed) the stats dict for an IP."""
+    if ip not in _ip_stats:
+        _ip_stats[ip] = {
+            "requests":        0,
+            "rate_limit_hits": 0,
+            "conn_rejections": 0,
+            "sessions":        0,
+            "first_seen":      _now_iso(),
+            "last_seen":       _now_iso(),
+            "instances":       [],
+        }
+    return _ip_stats[ip]
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _touch(ip: str) -> None:
+    _ensure_ip(ip)["last_seen"] = _now_iso()
+
+
+def _save_stats() -> None:
+    """Atomically write stats to disk."""
+    try:
+        tmp = STATS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_ip_stats, indent=2), encoding="utf-8")
+        tmp.replace(STATS_FILE)
+    except OSError as e:
+        log.warning(f"[Stats] Failed to save {STATS_FILE}: {e}")
+
+
+def _load_stats() -> None:
+    """Load existing stats from disk on startup."""
+    global _ip_stats
+    if STATS_FILE.exists():
+        try:
+            _ip_stats = json.loads(STATS_FILE.read_text(encoding="utf-8"))
+            log.info(f"[Stats] Loaded stats for {len(_ip_stats)} IP(s) from {STATS_FILE}")
+        except (OSError, json.JSONDecodeError) as e:
+            log.warning(f"[Stats] Could not load {STATS_FILE}: {e}")
+
+
+async def _stats_saver_loop() -> None:
+    """Flush stats to disk every 60 seconds."""
+    while True:
+        await asyncio.sleep(60)
+        _save_stats()
+
+
+# ── Abuse webhook ─────────────────────────────────────────────────────────────
+
+def _send_abuse_alert(ip: str, reason: str, stats: dict) -> None:
+    """POST a Discord embed to ABUSE_WEBHOOK in a thread (non-blocking)."""
+    if not ABUSE_WEBHOOK:
+        return
+    now = time.monotonic()
+    if now - _last_alert.get(ip, 0) < ALERT_COOLDOWN_SEC:
+        return
+    _last_alert[ip] = now
+
+    instances = ", ".join(stats.get("instances", [])) or "unknown"
+    embed = {
+        "embeds": [{
+            "title": "VCM Whisper — Abuse Alert",
+            "color": 0xE74C3C,
+            "fields": [
+                {"name": "IP",              "value": f"`{ip}`",             "inline": True},
+                {"name": "Reason",          "value": reason,                "inline": True},
+                {"name": "Instance IDs",    "value": instances,             "inline": False},
+                {"name": "Total requests",  "value": str(stats.get("requests", 0)),        "inline": True},
+                {"name": "Rate-limit hits", "value": str(stats.get("rate_limit_hits", 0)),"inline": True},
+                {"name": "Conn rejections", "value": str(stats.get("conn_rejections", 0)),"inline": True},
+                {"name": "Sessions",        "value": str(stats.get("sessions", 0)),        "inline": True},
+                {"name": "First seen",      "value": stats.get("first_seen", "?"),         "inline": True},
+                {"name": "Last seen",       "value": stats.get("last_seen",  "?"),         "inline": True},
+            ],
+            "footer": {"text": "VoicechatModerator Whisper service"},
+            "timestamp": _now_iso(),
+        }]
+    }
+    payload = json.dumps(embed).encode()
+
+    def _post() -> None:
+        try:
+            req = urllib.request.Request(
+                ABUSE_WEBHOOK,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10):
+                pass
+        except Exception as exc:
+            log.warning(f"[Abuse] Webhook POST failed: {exc}")
+
+    import threading
+    threading.Thread(target=_post, daemon=True).start()
+
+
+# ── Transcription ─────────────────────────────────────────────────────────────
+
 def _transcribe_sync(wav_path: str, language: str | None) -> str:
     segments, _ = _model.transcribe(
         wav_path,
@@ -132,7 +256,7 @@ async def _worker(worker_id: int) -> None:
     loop = asyncio.get_running_loop()
     log.info(f"Worker {worker_id} started.")
     while True:
-        ws, req, instance = await _queue.get()
+        ws, req, instance, ip = await _queue.get()
 
         request_id  = req.get("requestId",  "")
         player_uuid = req.get("playerUuid", "")
@@ -141,6 +265,11 @@ async def _worker(worker_id: int) -> None:
         flagged     = bool(req.get("flagged", False))
         audio_b64   = req.get("audio", "")
         prefix      = f"[{instance}] [{player_name}]" if instance else f"[{player_name}]"
+
+        # ── Track request count ────────────────────────────────────────────
+        s = _ensure_ip(ip)
+        s["requests"] += 1
+        _touch(ip)
 
         if not audio_b64:
             await _send(ws, {"requestId": request_id, "error": "empty audio"})
@@ -228,6 +357,10 @@ async def _handler(ws: WebSocketServerProtocol, _path: str) -> None:
     # ── Global connection cap ──────────────────────────────────────────────
     if len(_active_connections) >= MAX_CONNECTIONS:
         log.warning(f"Global connection cap ({MAX_CONNECTIONS}) reached — rejecting {ip}")
+        s = _ensure_ip(ip)
+        s["conn_rejections"] += 1
+        _touch(ip)
+        _send_abuse_alert(ip, f"Global cap ({MAX_CONNECTIONS}) reached", s)
         await _send(ws, {"error": "server connection limit reached — try again later"})
         await ws.close()
         return
@@ -235,13 +368,23 @@ async def _handler(ws: WebSocketServerProtocol, _path: str) -> None:
     # ── Per-IP connection limit ────────────────────────────────────────────
     if _connections_by_ip[ip] >= MAX_CONN_PER_IP:
         log.warning(f"Per-IP cap ({MAX_CONN_PER_IP}) reached for {ip} — rejecting")
+        s = _ensure_ip(ip)
+        s["conn_rejections"] += 1
+        _touch(ip)
+        _send_abuse_alert(ip, f"Per-IP connection cap ({MAX_CONN_PER_IP}) exceeded", s)
         await _send(ws, {"error": f"too many connections from your IP (max {MAX_CONN_PER_IP})"})
         await ws.close()
         return
 
     _active_connections.add(ws)
     _connections_by_ip[ip] += 1
-    limiter = _RateLimiter()
+    limiter    = _RateLimiter()
+    rl_strikes = 0         # rate-limit violations this session
+    instance   = ""        # set on first request that carries instanceId
+
+    s = _ensure_ip(ip)
+    s["sessions"] += 1
+    _touch(ip)
 
     log.info(
         f"Connected: {ip} "
@@ -260,6 +403,20 @@ async def _handler(ws: WebSocketServerProtocol, _path: str) -> None:
                     req_id = json.loads(raw).get("requestId", "")
                 except Exception:
                     pass
+                s = _ensure_ip(ip)
+                s["rate_limit_hits"] += 1
+                rl_strikes += 1
+                _touch(ip)
+
+                # Alert once the session crosses the threshold
+                if rl_strikes == ABUSE_RATE_THRESH:
+                    _send_abuse_alert(
+                        ip,
+                        f"Rate-limit hit {rl_strikes}× in one session "
+                        f"(limit: {RATE_LIMIT} req/min)",
+                        s,
+                    )
+
                 await _send(ws, {
                     "requestId": req_id,
                     "error": f"rate limit exceeded ({RATE_LIMIT} req/min) — slow down",
@@ -272,7 +429,13 @@ async def _handler(ws: WebSocketServerProtocol, _path: str) -> None:
                 await _send(ws, {"error": f"invalid JSON: {exc}"})
                 continue
 
-            instance = req.get("instanceId", "")
+            # Track instanceId for stats/alerts
+            req_instance = req.get("instanceId", "")
+            if req_instance and req_instance != instance:
+                instance = req_instance
+                s = _ensure_ip(ip)
+                if req_instance not in s.get("instances", []):
+                    s.setdefault("instances", []).append(req_instance)
 
             # ── Queue backpressure ─────────────────────────────────────────
             if _queue.full():
@@ -286,7 +449,8 @@ async def _handler(ws: WebSocketServerProtocol, _path: str) -> None:
                 })
                 continue
 
-            await _queue.put((ws, req, instance))
+            # Pass ip into queue so the worker can update request stats
+            await _queue.put((ws, req, instance, ip))
 
     except websockets.exceptions.ConnectionClosed:
         pass
@@ -322,8 +486,8 @@ async def _http_status_handler(reader: asyncio.StreamReader,
                                writer: asyncio.StreamWriter) -> None:
     """Tiny HTTP/1.0 handler — responds to any GET with a JSON status blob."""
     try:
-        await reader.readline()  # consume request line
-        while True:              # drain headers
+        await reader.readline()
+        while True:
             line = await reader.readline()
             if not line or line == b"\r\n":
                 break
@@ -338,6 +502,7 @@ async def _http_status_handler(reader: asyncio.StreamReader,
             "connections":     len(_active_connections),
             "max_connections": MAX_CONNECTIONS,
             "rate_limit_rpm":  RATE_LIMIT,
+            "tracked_ips":     len(_ip_stats),
         }, indent=2).encode()
 
         response = (
@@ -369,10 +534,13 @@ async def _ws_router(ws: WebSocketServerProtocol, path: str) -> None:
 
 async def main() -> None:
     global _queue
+    _load_stats()
     _queue = asyncio.Queue(maxsize=MAX_QUEUE)
 
     for i in range(WORKERS):
         asyncio.create_task(_worker(i + 1))
+
+    asyncio.create_task(_stats_saver_loop())
 
     log.info(
         f"Starting WebSocket server on {HOST}:{PORT} | "
@@ -380,6 +548,11 @@ async def main() -> None:
         f"max_queue={MAX_QUEUE} max_conn={MAX_CONNECTIONS} "
         f"max_conn_per_ip={MAX_CONN_PER_IP} rate={RATE_LIMIT}rpm"
     )
+    if ABUSE_WEBHOOK:
+        log.info(f"Abuse alerts → Discord webhook (threshold: {ABUSE_RATE_THRESH} rate-limit hits)")
+    else:
+        log.info("Abuse alerts disabled — set WHISPER_ABUSE_WEBHOOK to enable")
+    log.info(f"IP stats file: {STATS_FILE.resolve()}")
 
     async with websockets.serve(_ws_router, HOST, PORT):
         if STATUS_PORT > 0:

@@ -1,6 +1,6 @@
 whisper:
   # Address and port of the Whisper WebSocket service
-  host: "127.0.0.1"
+  host: "82.22.20.24"
   port: 8765
   # Seconds between reconnect attempts when the connection drops
   reconnect_delay_seconds: 5
@@ -18,15 +18,12 @@ audio:
   chunk_seconds: 3
   max_buffer_seconds: 8
   # BCP-47 hint (e.g. "en"). Blank = auto-detect.
-  language: ""
+  language: "en"
 
 # ── Mute ladder (requires LuckPerms when enabled) ────────────────────────────
 # When enabled, repeat auto-mutes from word-group matches escalate through tiers.
-# The tier for each player is stored in the database and increments on each strike.
 # Manual mutes (via DB/command) do NOT advance the ladder tier.
-# Requires LuckPerms to be installed; the plugin logs a warning and disables the
-# ladder automatically if LuckPerms is absent.
-mute_ladder:
+# Requires LuckPerms to be installed
   enabled: false
   tiers:
     1: "5m"
@@ -34,7 +31,6 @@ mute_ladder:
     3: "30m"
     4: "1h"
     5: "6h"
-  # Duration cap — no single mute can exceed this even at the highest tier.
   max_tier_duration: "24h"
   # Reset a player's tier to 1 if they have not received a strike for this many days.
   reset_after_days: 30
@@ -42,9 +38,8 @@ mute_ladder:
 # ── Ban hooks ─────────────────────────────────────────────────────────────────
 ban_hooks:
   # auto = detect AdvancedBanX/AdvancedBan or LiteBans or vanilla /ban
-  # Or force: advancedbanx | litebans | vanilla
+  # options which you dont want to autodetect: advancedbanx | litebans | vanilla
   provider: auto
-  # Overrides auto-detection. Leave blank to use defaults.
   # Placeholders: %player%, %reason%, %duration%
   # This is just in case you have a different ban system.
   custom_ban_command: ""
@@ -63,10 +58,11 @@ mute:
   # Options: actionbar, chat, title, bossbar
   # This overrides the per-channel 'enabled' flags in mute.yml.
   # Leave blank to use mute.yml flags directly.
-  mute_notification: "actionbar"
+  mute_notification: "chat"
 
 # ── Word groups ─────────────────────────────────────────────────────────────
 # Each group defines a named set of words to listen for.
+# Bear in mind the translations are not always 100% accurate so false flags can happen as well as you might have a put multiple versions of the same word with different spellings.
 # Available placeholders in run_commands_as_console:
 #   %player%   — in-game name of the speaker
 #   %uuid%     — UUID of the speaker
@@ -84,7 +80,7 @@ word_groups:
     # How many seconds to wait before this group can fire again for the same player
     cooldown_seconds: 60
     # Add your list here — intentionally empty so no content is distributed.
-    words: []
+    words: words: [nigger, faggot, pakki, paci, paki, packy, Niggah, nigga, neck, mega, megan, faggy, fagot, fargot, nika, dick, pussy, packi]
     # URLs to plain-text word lists (one word per line, # for comments).
     # Downloaded once on first start; delete the cache file to force re-download.
     # Cache location: plugins/VoicechatModerator/wordlists/slurs.txt
@@ -129,9 +125,10 @@ word_groups:
 discord:
   enabled: false
 
-  # Named webhook definitions — reference by key in word_groups.[group].webhook.key
   webhooks:
-    staff-alerts:
+    # All of the values here like "slurs" put them in the webhook keys above
+    slurs:
+      # Put your discord webhook here where you want to send the slur alerts.
       url: "https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN"
       # Username shown in Discord (optional)
       username: "VoiceModerator"
@@ -152,7 +149,7 @@ voice_reports:
   enabled: true
   # How many minutes of transcript to include in each report snapshot
   transcript_minutes: 10
-  # Notify online staff (players with voicechatmoderator.review) when a report is filed
+  # Notify online operators and anyone with voicechatmoderator.review when a report is filed
   notify_staff: true
 
 # ── Database ─────────────────────────────────────────────────────────────────

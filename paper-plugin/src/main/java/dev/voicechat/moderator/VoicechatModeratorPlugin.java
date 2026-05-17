@@ -37,10 +37,8 @@ public class VoicechatModeratorPlugin extends JavaPlugin {
     private MuteNotifier       muteNotifier;
     private MuteLadderService  muteLadderService;
 
-    // key → validated client; rebuilt on each reload
     private final Map<String, DiscordWebhookClient> webhookClients = new HashMap<>();
 
-    // Validation / IO tasks run off the main thread
     private final ExecutorService bgExec = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "vc-plugin-bg");
         t.setDaemon(true);

@@ -215,7 +215,7 @@ recordings:
 voice_reports:
   enabled: true
   transcript_minutes: 10        # how many minutes of transcript to include in reports
-  notify_staff: true            # ping online staff when a report is filed
+  notify_staff: true            # ping online ops + players with voicechatmoderator.review
 
 database:
   type: sqlite        # sqlite | mysql
@@ -486,7 +486,7 @@ A 3-row chest GUI opens with five categories:
 | Sexual Harassment | Unwanted sexual comments |
 | Other | Anything that doesn't fit above |
 
-The last `voice_reports.transcript_minutes` minutes of that player's transcript are attached to the report. Staff with `voicechatmoderator.review` are notified in chat and can review/close reports with `/vcm reviews`.
+The last `voice_reports.transcript_minutes` minutes of that player's transcript are attached to the report. Online **operators** (`/op`) and anyone with `voicechatmoderator.review` are notified in chat and can use `/vcm reviews` to close reports.
 
 ---
 

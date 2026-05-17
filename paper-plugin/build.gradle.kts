@@ -24,7 +24,6 @@ dependencies {
     compileOnly("me.clip:placeholderapi:2.11.6")
     compileOnly("net.luckperms:api:5.4")
 
-    // Bundled via shadow (not provided by Paper)
     implementation("org.xerial:sqlite-jdbc:3.45.3.0")
     implementation("com.zaxxer:HikariCP:5.1.0")
 }
@@ -32,13 +31,8 @@ dependencies {
 tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar") {
     archiveFileName.set("voicechat-moderator.jar")
 
-    // HikariCP is pure-Java — safe to relocate
     relocate("com.zaxxer.hikari", "dev.voicechat.libs.hikari")
 
-    // SQLite JDBC uses JNI — relocating the Java class breaks native method lookup,
-    // so we leave org.sqlite in-place and only strip the unused native binaries.
-
-    // Keep only Windows x64 + Linux x64 natives; strip the rest to shrink the JAR
     exclude("org/sqlite/native/Mac/**")
     exclude("org/sqlite/native/FreeBSD/**")
     exclude("org/sqlite/native/Android/**")
@@ -47,11 +41,10 @@ tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJ
     exclude("org/sqlite/native/Linux/armv6/**")
     exclude("org/sqlite/native/Linux/armv7/**")
     exclude("org/sqlite/native/Linux/ppc64/**")
-    exclude("org/sqlite/native/Linux/x86/**")    // 32-bit Linux
-    exclude("org/sqlite/native/Windows/x86/**")  // 32-bit Windows
+    exclude("org/sqlite/native/Linux/x86/**")   
+    exclude("org/sqlite/native/Windows/x86/**")  
 }
 
-// Disable plain jar — shadow jar is the deployment artifact
 tasks.jar {
     enabled = false
 }
